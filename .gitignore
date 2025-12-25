@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.db
+*.duckdb
+*.parquet
+*.log
+.DS_Store
+Thumbs.db

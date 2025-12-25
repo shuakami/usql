@@ -1,0 +1,53 @@
+{
+  "name": "@sdjz/usql",
+  "version": "0.1.0",
+  "description": "Query any database from your terminal. SQLite, Postgres, MySQL, DuckDB, Parquet.",
+  "license": "MIT",
+  "author": "sdjz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shuakami/usql"
+  },
+  "homepage": "https://github.com/shuakami/usql",
+  "keywords": [
+    "sql",
+    "cli",
+    "database",
+    "sqlite",
+    "postgres",
+    "mysql",
+    "duckdb",
+    "parquet",
+    "repl",
+    "ai",
+    "llm"
+  ],
+  "bin": {
+    "usql": "dist/index.js"
+  },
+  "type": "commonjs",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "cac": "^6.7.14",
+    "cli-table3": "^0.6.5",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "tsup": "^8.2.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
