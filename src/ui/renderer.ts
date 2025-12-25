@@ -49,7 +49,7 @@ function getTerminalWidth(): number {
   return process.stdout.columns || 80;
 }
 
-function safeJsonStringify(obj: unknown): string {
+export function safeJsonStringify(obj: unknown): string {
   return JSON.stringify(obj, (_key, value) => {
     if (typeof value === "bigint") return value.toString();
     return value as unknown;
@@ -89,17 +89,17 @@ export class Renderer {
   }
 
   info(msg: string): void {
-    if (this.quiet) return;
+    if (this.quiet || this.json) return;
     process.stderr.write(color(pc.dim, msg) + "\n");
   }
 
   success(msg: string): void {
-    if (this.quiet) return;
+    if (this.quiet || this.json) return;
     process.stderr.write(color(pc.green, msg) + "\n");
   }
 
   warn(msg: string): void {
-    if (this.quiet) return;
+    if (this.quiet || this.json) return;
     process.stderr.write(color(pc.yellow, msg) + "\n");
   }
 

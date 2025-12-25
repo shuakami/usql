@@ -5,7 +5,7 @@ import pc from "picocolors";
 
 import { parseConnectionString } from "./core/driver-manager";
 import { inspectDatabase, listTableNames } from "./core/introspector";
-import { Renderer } from "./ui/renderer";
+import { Renderer, safeJsonStringify } from "./ui/renderer";
 
 import type { Adapter } from "./drivers/adapter";
 import { quoteIdent } from "./drivers/adapter";
@@ -52,6 +52,9 @@ function getConnectionLabel(conn: string, dialect: string): string {
   const lower = conn.toLowerCase();
   if (lower.startsWith("parquet:") || lower.endsWith(".parquet") || lower.endsWith(".pq")) {
     return "parquet";
+  }
+  if (lower.startsWith("sqldump:") || lower.endsWith(".sql")) {
+    return "sqldump";
   }
   return dialect;
 }
@@ -282,7 +285,8 @@ async function startRepl(conn: string, opts: { quiet?: boolean }): Promise<void>
         } else if (parsed.dialect === "mysql") {
           schemaQuery = `DESCRIBE \`${tableName.replace(/`/g, "``")}\`;`;
         } else {
-          schemaQuery = `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${tableName.replace(/'/g, "''")}' ORDER BY ordinal_position;`;
+          // DuckDB: limit to current database to avoid duplicates from attached databases
+          schemaQuery = `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${tableName.replace(/'/g, "''")}' AND table_catalog = current_database() ORDER BY ordinal_position;`;
         }
         const res = await adapter.query(schemaQuery);
         renderer.renderQueryResult(res);
@@ -375,7 +379,7 @@ async function startRepl(conn: string, opts: { quiet?: boolean }): Promise<void>
         continue;
       }
       if (format === "json") {
-        process.stdout.write(JSON.stringify(lastResult.rows, null, 2) + "\n");
+        process.stdout.write(safeJsonStringify(lastResult.rows) + "\n");
         renderer.success(`+ exported ${lastResult.rows.length} rows as JSON`);
       } else if (format === "csv") {
         const header = lastResult.columns.join(",");

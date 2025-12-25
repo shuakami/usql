@@ -77,6 +77,7 @@ usql ./app.db "SELECT * FROM users" | jq '.rows | length'
 | MySQL | `mysql://user:pass@host/db` |
 | DuckDB | `duckdb:./file.duckdb` |
 | Parquet | `./file.parquet` |
+| SQL Dump | `./dump.sql` |
 
 ## Commands
 

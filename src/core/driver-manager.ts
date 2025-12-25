@@ -71,9 +71,19 @@ export function parseConnectionString(input: string): ParsedConnection {
     return { dialect: "duckdb", connectionString: raw };
   }
 
+  // allow explicit sqldump: scheme
+  if (lower.startsWith("sqldump:")) {
+    return { dialect: "duckdb", connectionString: raw };
+  }
+
   // Auto-detect by file extension
   if (lower.endsWith(".parquet") || lower.endsWith(".pq")) {
     return { dialect: "duckdb", connectionString: `parquet:${raw}` };
+  }
+
+  // SQL dump files - load into DuckDB memory and execute
+  if (lower.endsWith(".sql")) {
+    return { dialect: "duckdb", connectionString: `sqldump:${raw}` };
   }
 
   // Default: treat as SQLite file path
@@ -146,7 +156,6 @@ export function detectPackageManager(cwd: string = process.cwd()): PackageManage
   const forced = normalizePm(process.env.USQL_PM || "");
   if (forced) {
     if (isCommandAvailable(forced)) return forced;
-    // Forced but missing -> fall back to npm if possible.
     if (isCommandAvailable("npm")) return "npm";
   }
 
@@ -271,8 +280,6 @@ async function installPackageIntoCache(
 
   const cmd = pmToCommand(pm);
 
-  // Install into cache project scope. We *want* it written to cache package.json.
-  // npm: keep package.json untouched (no-save) to reduce churn.
   const args =
     pm === "npm"
       ? ["install", installName, "--no-save"]
@@ -297,7 +304,6 @@ async function installPackageIntoCache(
       npm_config_loglevel: "error"
     };
 
-    // Keep install logs quiet; we capture them and only show on error.
     await spawnAndCapture(cmd, args, cacheDir, env);
 
     spin?.stop(true, "ready");
@@ -308,7 +314,6 @@ async function installPackageIntoCache(
 }
 
 function createProjectRequire(cwd: string): typeof require {
-  // createRequire only needs an absolute path; the file doesn't have to exist.
   return createRequire(path.join(cwd, "__usql__.cjs"));
 }
 
@@ -344,7 +349,6 @@ export async function loadPackage<T = unknown>(
   }
   candidates.push({ location: "cache", req: cacheReq });
 
-  // Fast path: already resolvable somewhere.
   for (const c of candidates) {
     const resolved = resolveOrNull(c.req, specifier);
     if (!resolved) continue;
@@ -354,11 +358,9 @@ export async function loadPackage<T = unknown>(
     return { module: mod, require: c.req, resolvedPath: resolved, location: c.location };
   }
 
-  // Not found -> install into cache, then load.
   await withInstallLock(
     cacheDir,
     async () => {
-      // Another process may have installed it while we were waiting.
       if (resolveOrNull(cacheReq, specifier)) return;
 
       const pm = detectPackageManager(cwd);

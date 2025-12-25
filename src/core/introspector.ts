@@ -234,12 +234,15 @@ async function listTables(adapter: Adapter): Promise<TableRef[]> {
   }
 
   if (adapter.dialect === "duckdb") {
+    // For SQL dump mode, we create views pointing to cached tables
+    // So we need to include both BASE TABLE and VIEW, but only from main database
     const r = await adapter.query(
       `
       SELECT table_schema, table_name, table_type
       FROM information_schema.tables
       WHERE table_type IN ('BASE TABLE', 'VIEW')
         AND table_schema NOT IN ('information_schema', 'pg_catalog')
+        AND table_catalog = current_database()
       ORDER BY table_schema, table_name;
       `
     );
