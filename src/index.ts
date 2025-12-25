@@ -62,11 +62,12 @@ function getConnectionLabel(conn: string, dialect: string): string {
 async function runSingleQuery(
   conn: string,
   sql: string,
-  opts: { json?: boolean; quiet?: boolean }
+  opts: { json?: boolean; quiet?: boolean; full?: boolean; format?: string }
 ): Promise<void> {
   const parsed = parseConnectionString(conn);
-  const jsonMode = !!opts.json || isPipeLike();
-  const renderer = new Renderer({ dialect: parsed.dialect, json: jsonMode, quiet: !!opts.quiet });
+  const format = opts.format || "table";
+  const jsonMode = format === "json" || isPipeLike();
+  const renderer = new Renderer({ dialect: parsed.dialect, json: jsonMode, quiet: !!opts.quiet, full: !!opts.full });
 
   let adapter: Adapter | null = null;
 
@@ -76,19 +77,43 @@ async function runSingleQuery(
 
     await adapter.connect();
 
-    if (!renderer.isJson) {
+    if (!renderer.isJson && !opts.quiet) {
       renderer.success(`+ connected [${label}]`);
-      renderer.info(`  ${redactConnString(conn)}`);
     }
 
     const res = await adapter.query(sql);
-    renderer.renderQueryResult(res);
+    
+    // Handle different output formats
+    if (format === "csv") {
+      outputCsv(res);
+    } else {
+      renderer.renderQueryResult(res);
+    }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     renderer.error(`x ${msg}`);
     process.exitCode = 1;
   } finally {
     await adapter?.close().catch(() => undefined);
+  }
+}
+
+function outputCsv(result: { columns: string[]; rows: Array<Record<string, unknown>> }): void {
+  const { columns, rows } = result;
+  if (!columns.length) return;
+  
+  const escape = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+  
+  process.stdout.write(columns.join(",") + "\n");
+  for (const row of rows) {
+    process.stdout.write(columns.map(c => escape(row[c])).join(",") + "\n");
   }
 }
 
@@ -115,6 +140,7 @@ function printReplHelp(): void {
     pc.dim("  .indexes <tbl>    show table indexes"),
     pc.dim("  .export <format>  export last result (csv/json)"),
     pc.dim("  .time             toggle query timing"),
+    pc.dim("  .full             toggle full content display (no truncation)"),
     pc.dim("  .inspect          output AI resume JSON"),
     pc.dim("  .clear            clear screen"),
     pc.dim("  .quit             exit repl"),
@@ -123,9 +149,9 @@ function printReplHelp(): void {
   process.stdout.write(lines.join("\n"));
 }
 
-async function startRepl(conn: string, opts: { quiet?: boolean }): Promise<void> {
+async function startRepl(conn: string, opts: { quiet?: boolean; full?: boolean }): Promise<void> {
   const parsed = parseConnectionString(conn);
-  const renderer = new Renderer({ dialect: parsed.dialect, json: false, quiet: !!opts.quiet });
+  const renderer = new Renderer({ dialect: parsed.dialect, json: false, quiet: !!opts.quiet, full: !!opts.full });
 
   const adapter = await createAdapterForConn(conn, renderer);
   const label = getConnectionLabel(conn, parsed.dialect);
@@ -146,6 +172,7 @@ async function startRepl(conn: string, opts: { quiet?: boolean }): Promise<void>
 
   let tables: string[] = [];
   let showTiming = false;
+  let showFull = !!opts.full;
   let lastResult: { columns: string[]; rows: Array<Record<string, unknown>> } | null = null;
 
   const refreshTables = async (): Promise<void> => {
@@ -171,6 +198,7 @@ async function startRepl(conn: string, opts: { quiet?: boolean }): Promise<void>
         ".indexes ",
         ".export ",
         ".time",
+        ".full",
         ".inspect",
         ".clear",
         ".quit"
@@ -370,6 +398,15 @@ async function startRepl(conn: string, opts: { quiet?: boolean }): Promise<void>
       continue;
     }
 
+    // .full - toggle full content display
+    if (trimmed === ".full") {
+      showFull = !showFull;
+      renderer.setFull(showFull);
+      renderer.success(`+ full display ${showFull ? "on" : "off"}`);
+      rl.prompt();
+      continue;
+    }
+
     // .export <format> - export last result
     if (trimmed.startsWith(".export ")) {
       const format = trimmed.slice(".export ".length).trim().toLowerCase();
@@ -442,9 +479,12 @@ async function startRepl(conn: string, opts: { quiet?: boolean }): Promise<void>
 async function main(): Promise<void> {
   const cli = cac("usql");
 
-  cli.option("--json", "Output strict minified JSON (auto-enabled when piped)");
+  cli.option("--json", "Output JSON (auto-enabled when piped)");
   cli.option("--quiet, -q", "Reduce logs (errors still print)");
   cli.option("--color", "Enable colored output", { default: true });
+  cli.option("-c, --command <sql>", "Execute SQL command and exit");
+  cli.option("--full, --no-truncate", "Show full content without truncation");
+  cli.option("--format <format>", "Output format: table (default), csv, json");
 
   cli.version(pkg.version || "0.0.0");
 
@@ -475,24 +515,76 @@ async function main(): Promise<void> {
     });
 
   cli
-    .command("[conn] [sql]", "Run SQL once, or start REPL if SQL is omitted")
-    .action(async (conn?: string, sql?: string, flags?: { json?: boolean; quiet?: boolean }) => {
+    .command("[conn] [sql]", "Run SQL or start REPL")
+    .action(async (conn?: string, sql?: string, flags?: { json?: boolean; quiet?: boolean; command?: string; full?: boolean; noTruncate?: boolean; format?: string }) => {
       if (!conn) {
-        cli.outputHelp();
+        printExtendedHelp();
         process.exitCode = 1;
         return;
       }
 
-      if (!sql) {
-        await startRepl(conn, { quiet: !!flags?.quiet });
+      // Support -c/--command option (common SQL CLI convention)
+      const sqlToRun = flags?.command || sql;
+      const format = flags?.format?.toLowerCase() || (flags?.json ? "json" : "table");
+
+      if (!sqlToRun) {
+        await startRepl(conn, { quiet: !!flags?.quiet, full: !!(flags?.full || flags?.noTruncate) });
         return;
       }
 
-      await runSingleQuery(conn, sql, { json: !!flags?.json, quiet: !!flags?.quiet });
+      await runSingleQuery(conn, sqlToRun, { 
+        json: format === "json",
+        quiet: !!flags?.quiet,
+        full: !!(flags?.full || flags?.noTruncate),
+        format
+      });
     });
 
   cli.help();
   cli.parse();
+}
+
+function printExtendedHelp(): void {
+  const lines = [
+    pc.bold("usql") + " - Query any database from terminal",
+    "",
+    pc.bold("Usage:"),
+    "  usql <connection> [sql]           Run SQL or start REPL",
+    "  usql <connection> -c \"SQL\"        Execute SQL (quote-friendly)",
+    "  usql inspect <connection>         Generate AI-ready schema dump",
+    "",
+    pc.bold("Connections:"),
+    "  ./file.db                         SQLite",
+    "  postgres://user:pass@host/db      PostgreSQL", 
+    "  mysql://user:pass@host/db         MySQL",
+    "  duckdb:./file.duckdb              DuckDB",
+    "  ./file.parquet                    Parquet (via DuckDB)",
+    "  ./dump.sql                        MySQL dump (auto-cached)",
+    "",
+    pc.bold("Options:"),
+    "  -c, --command <sql>    Execute SQL and exit",
+    "  --format <fmt>         Output: table, csv, json",
+    "  --full                 No truncation on long fields",
+    "  -q, --quiet            Minimal output",
+    "  --json                 JSON output (auto when piped)",
+    "",
+    pc.bold("REPL Commands:"),
+    "  .tables                List all tables",
+    "  .schema <table>        Show table structure",
+    "  .sample <table>        Preview first 5 rows",
+    "  .count <table>         Count rows",
+    "  .inspect               AI schema dump",
+    "  .full                  Toggle full display",
+    "  .export csv|json       Export last result",
+    "",
+    pc.bold("Examples:"),
+    "  usql ./app.db \"SELECT * FROM users\"",
+    "  usql ./dump.sql -c \"SELECT COUNT(*) FROM logs\"",
+    "  usql inspect ./app.db --pretty",
+    "  usql ./data.parquet \"SELECT * FROM data LIMIT 10\"",
+    ""
+  ];
+  process.stderr.write(lines.join("\n"));
 }
 
 main().catch((e: unknown) => {

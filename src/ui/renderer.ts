@@ -8,7 +8,8 @@ function color<T extends string>(fn: (s: T) => string, s: T): string {
   return NO_COLOR ? s : fn(s);
 }
 
-function clampString(input: string, max: number): string {
+function clampString(input: string, max: number, full: boolean = false): string {
+  if (full) return input;
   if (input.length <= max) return input;
   if (max <= 3) return "...";
   return input.slice(0, Math.max(0, max - 3)) + "...";
@@ -60,19 +61,26 @@ export interface RendererOptions {
   dialect?: Dialect;
   json?: boolean;
   quiet?: boolean;
+  full?: boolean;
 }
 
 export class Renderer {
   private readonly dialect?: Dialect;
   private readonly json: boolean;
   private readonly quiet: boolean;
+  private full: boolean;
   private readonly dialectColorFn: (s: string) => string;
 
   constructor(opts: RendererOptions = {}) {
     this.dialect = opts.dialect;
     this.json = !!opts.json;
     this.quiet = !!opts.quiet;
+    this.full = !!opts.full;
     this.dialectColorFn = dialectColor(opts.dialect);
+  }
+
+  setFull(value: boolean): void {
+    this.full = value;
   }
 
   get isJson(): boolean {
@@ -173,7 +181,10 @@ export class Renderer {
   private renderMinimalTable(columns: string[], rows: Array<Record<string, unknown>>): string {
     const termWidth = getTerminalWidth();
     const colCount = columns.length || 1;
-    const maxCell = Math.max(10, Math.floor((termWidth - colCount * 2) / colCount));
+    // When full mode is enabled, use a much larger max cell width
+    const maxCell = this.full 
+      ? 10000 
+      : Math.max(10, Math.floor((termWidth - colCount * 2) / colCount));
 
     const t = new Table({
       head: columns.map((c) => (NO_COLOR ? c : pc.bold(c))),
@@ -200,7 +211,9 @@ export class Renderer {
         right: "",
         "right-mid": "",
         middle: " "
-      }
+      },
+      // Disable word wrapping in full mode
+      wordWrap: !this.full
     });
 
     for (const r of rows) {
@@ -215,7 +228,7 @@ export class Renderer {
     if (value === null) return color(pc.dim, "NULL");
     if (value === undefined) return color(pc.dim, "-");
 
-    if (typeof value === "string") return clampString(value, max);
+    if (typeof value === "string") return clampString(value, max, this.full);
     if (typeof value === "number") return String(value);
     if (typeof value === "boolean") return value ? "true" : "false";
     if (typeof value === "bigint") return value.toString();
@@ -226,9 +239,9 @@ export class Renderer {
 
     try {
       const s = JSON.stringify(value);
-      return clampString(s, max);
+      return clampString(s, max, this.full);
     } catch {
-      return clampString(String(value), max);
+      return clampString(String(value), max, this.full);
     }
   }
 }

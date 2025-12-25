@@ -1955,13 +1955,6 @@ export class DuckDbAdapter extends Adapter {
     // Cache hit fast path
     const hitMeta = await isSqlDumpCacheValid(cachePath, metaPath);
     if (hitMeta) {
-      this.renderer?.info?.(`  using cached data (${path.basename(cachePath)})`);
-      this.renderer?.info?.(
-        `  loaded ${formatInt(hitMeta.tables)} tables, ${formatInt(hitMeta.rows)} rows${
-          hitMeta.failedTables > 0 ? ` (${formatInt(hitMeta.failedTables)} failed)` : ""
-        }`
-      );
-
       await this.attachCacheAndCreateViews(cachePath);
       return;
     }
@@ -2056,11 +2049,23 @@ export class DuckDbAdapter extends Adapter {
 
         await writeSqlDumpCacheMeta(metaPath, meta);
 
-        this.renderer?.info?.(
-          `  loaded ${formatInt(meta.tables)} tables, ${formatInt(meta.rows)} rows${
-            meta.failedTables > 0 ? ` (${formatInt(meta.failedTables)} failed)` : ""
+        // Only show summary for first-time builds
+        this.renderer?.success?.(
+          `+ loaded ${formatInt(meta.tables)} tables, ${formatInt(meta.rows)} rows${
+            meta.failedTables > 0 ? ` (${meta.failedTables} failed)` : ""
           }`
         );
+        
+        // Show failed table details
+        if (this.failedTables.length > 0) {
+          for (const f of this.failedTables.slice(0, 3)) {
+            const shortErr = f.error.split('\n')[0].slice(0, 80);
+            this.renderer?.warn?.(`  - ${f.name}: ${shortErr}`);
+          }
+          if (this.failedTables.length > 3) {
+            this.renderer?.warn?.(`  ... and ${this.failedTables.length - 3} more`);
+          }
+        }
       },
       this.renderer
     );
@@ -2069,15 +2074,7 @@ export class DuckDbAdapter extends Adapter {
     const finalMeta = await isSqlDumpCacheValid(cachePath, metaPath);
 
     if (finalMeta) {
-      this.renderer?.info?.(`  using cached data (${path.basename(cachePath)})`);
       await this.attachCacheAndCreateViews(cachePath);
-
-      if (this.failedTables.length > 0 && process.env.USQL_DEBUG) {
-        for (const f of this.failedTables) {
-          this.renderer?.warn?.(`  - ${f.name}: ${f.error}`);
-          this.renderer?.warn?.(`    ${f.stmt}`);
-        }
-      }
       return;
     }
 

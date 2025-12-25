@@ -1,6 +1,6 @@
 {
   "name": "@sdjz/usql",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Query any database from your terminal. SQLite, Postgres, MySQL, DuckDB, Parquet.",
   "license": "MIT",
   "author": "sdjz",

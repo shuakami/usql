@@ -1,6 +1,6 @@
 # usql
 
-Feed your database to LLMs. Query anything from terminal.
+Query any database from terminal. Feed your database to LLMs.
 
 ![usql](demo.png)
 
@@ -8,9 +8,9 @@ Feed your database to LLMs. Query anything from terminal.
 npm i -g @sdjz/usql
 ```
 
-## Give AI Your Database Context
+## AI Integration
 
-One command to generate a token-optimized schema dump for ChatGPT, Claude, or any LLM:
+Generate a token-optimized schema dump for ChatGPT, Claude, or any LLM:
 
 ```bash
 usql inspect ./myapp.db
@@ -23,23 +23,39 @@ usql inspect ./myapp.db
 Paste this into your AI chat. It now understands your schema, relationships, and sample data.
 
 ```bash
-# Pretty print for humans
-usql inspect postgres://localhost/prod --pretty
-
-# Control sample size
-usql inspect ./app.db --rows 5
+usql inspect postgres://localhost/prod --pretty   # Human-readable
+usql inspect ./app.db --rows 5                    # More sample rows
 ```
 
-## Query Any Database
+## Quick Start
 
 ```bash
+# Query any database
 usql ./data.db "SELECT * FROM users"
 usql postgres://user:pass@host/db "SELECT now()"
 usql mysql://user:pass@host/db "SHOW TABLES"
-usql ./analytics.parquet "SELECT * FROM data LIMIT 10"
+
+# Use -c for complex SQL (avoids shell quote issues)
+usql ./data.db -c "SELECT * FROM logs WHERE msg LIKE '%error%'"
+
+# Output formats
+usql ./data.db "SELECT * FROM users" --format=csv
+usql ./data.db "SELECT * FROM users" --format=json
+usql ./data.db "SELECT * FROM users" --full  # No truncation
 ```
 
 Drivers auto-install on first use. Zero config.
+
+## Supported Databases
+
+| Database | Connection |
+|----------|------------|
+| SQLite | `./file.db` |
+| PostgreSQL | `postgres://user:pass@host/db` |
+| MySQL | `mysql://user:pass@host/db` |
+| DuckDB | `duckdb:./file.duckdb` |
+| Parquet | `./file.parquet` |
+| MySQL Dump | `./dump.sql` (auto-cached) |
 
 ## Interactive REPL
 
@@ -49,47 +65,56 @@ usql ./app.db
 
 ```
 sqlite> .tables
-users
-orders
+users orders
 
-sqlite> SELECT * FROM users LIMIT 3;
+sqlite> .schema users
+column_name  data_type
+----------- ----------
+id           INTEGER
+name         TEXT
+email        TEXT
+
+sqlite> .sample users
 id  name   email
 --- ------ -----------------
 1   Alice  alice@example.com
 2   Bob    bob@example.com
-  2 row(s)
+
+sqlite> .inspect
+{"v":1,"d":"sqlite",...}   # Paste to AI!
+```
+
+### REPL Commands
+
+| Command | Description |
+|---------|-------------|
+| `.tables` | List all tables |
+| `.schema <t>` | Show table structure |
+| `.sample <t>` | Preview first 5 rows |
+| `.count <t>` | Count rows |
+| `.indexes <t>` | Show indexes |
+| `.inspect` | AI schema dump |
+| `.full` | Toggle full display |
+| `.time` | Toggle query timing |
+| `.export csv\|json` | Export last result |
+
+## CLI Options
+
+```
+-c, --command <sql>    Execute SQL and exit
+--format <fmt>         Output: table (default), csv, json
+--full, --no-truncate  Show full content
+-q, --quiet            Minimal output
+--json                 JSON output (auto when piped)
 ```
 
 ## Pipe to Anything
 
-Output is JSON when piped. Works with jq, scripts, CI/CD:
+Output is JSON when piped:
 
 ```bash
 usql ./app.db "SELECT * FROM users" | jq '.rows | length'
-```
-
-## Supported
-
-| Database | Example |
-|----------|---------|
-| SQLite | `./file.db` |
-| PostgreSQL | `postgres://user:pass@host/db` |
-| MySQL | `mysql://user:pass@host/db` |
-| DuckDB | `duckdb:./file.duckdb` |
-| Parquet | `./file.parquet` |
-| SQL Dump | `./dump.sql` |
-
-## Commands
-
-```
-.tables       list tables
-.schema <t>   columns
-.sample <t>   preview rows
-.count <t>    row count
-.indexes <t>  indexes
-.time         query timing
-.export csv   export last result
-.inspect      AI schema dump
+usql ./app.db "SELECT * FROM users" --format=csv > export.csv
 ```
 
 ---
